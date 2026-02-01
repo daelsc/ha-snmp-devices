@@ -1,0 +1,49 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select Device Type",
+        "description": "Choose the type of SNMP device you want to add.",
+        "data": {
+          "device_type": "Device Type"
+        }
+      },
+      "connection": {
+        "title": "Connect to {device_type}",
+        "description": "Enter the connection details for your device.",
+        "data": {
+          "host": "Host",
+          "community": "SNMP Community String",
+          "name": "Name (optional)"
+        },
+        "data_description": {
+          "host": "IP address or hostname of the device",
+          "community": "SNMP community string (usually 'private' for read-write access)",
+          "name": "Friendly name for this device"
+        }
+      },
+      "outlets": {
+        "title": "Configure Outlet Names",
+        "description": "Found {outlet_count} outlets/groups. Customize the names below."
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device. Check the host address and community string.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Outlet Names",
+        "description": "Update the names for each outlet/group."
+      }
+    },
+    "abort": {
+      "no_outlets": "This device has no configurable outlets."
+    }
+  }
+}
