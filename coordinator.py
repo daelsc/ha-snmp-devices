@@ -6,6 +6,18 @@ from datetime import timedelta
 import logging
 from typing import Any
 
+from pysnmp.hlapi.asyncio import (
+    CommunityData,
+    ContextData,
+    Integer,
+    ObjectIdentity,
+    ObjectType,
+    SnmpEngine,
+    UdpTransportTarget,
+    getCmd,
+    setCmd,
+)
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
@@ -62,6 +74,7 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
         self.community = entry.data.get("community", "private")
         self.device_type = entry.data.get(CONF_DEVICE_TYPE, DEVICE_TYPE_CYBERPOWER_PDU)
         self.outlet_count = entry.data.get(CONF_OUTLET_COUNT, 8)
+        self._snmp_engine: SnmpEngine | None = None
 
         super().__init__(
             hass,
@@ -71,26 +84,24 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
             config_entry=entry,
         )
 
+    async def _get_snmp_engine(self) -> SnmpEngine:
+        """Get or create the SNMP engine off the event loop."""
+        if self._snmp_engine is None:
+            self._snmp_engine = await self.hass.async_add_executor_job(SnmpEngine)
+        return self._snmp_engine
+
     async def _async_snmp_get(self, oid: str) -> Any:
         """Perform async SNMP GET."""
-        from pysnmp.hlapi.v1arch.asyncio import (
-            CommunityData,
-            ObjectIdentity,
-            ObjectType,
-            SnmpDispatcher,
-            UdpTransportTarget,
-            get_cmd,
-        )
-
-        dispatcher = SnmpDispatcher()
+        snmp_engine = await self._get_snmp_engine()
 
         try:
-            transport = await UdpTransportTarget.create((self.host, 161), timeout=2, retries=1)
+            transport = UdpTransportTarget((self.host, 161), timeout=2, retries=1)
 
-            error_indication, error_status, error_index, var_binds = await get_cmd(
-                dispatcher,
+            error_indication, error_status, error_index, var_binds = await getCmd(
+                snmp_engine,
                 CommunityData(self.community, mpModel=1),
                 transport,
+                ContextData(),
                 ObjectType(ObjectIdentity(oid)),
             )
 
@@ -108,30 +119,19 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
         except Exception as err:
             _LOGGER.debug("SNMP GET error for %s: %s", oid, err)
             return None
-        finally:
-            dispatcher.transport_dispatcher.close_dispatcher()
 
     async def _async_snmp_set(self, oid: str, value: int) -> bool:
         """Perform async SNMP SET."""
-        from pysnmp.hlapi.v1arch.asyncio import (
-            CommunityData,
-            ObjectIdentity,
-            ObjectType,
-            SnmpDispatcher,
-            UdpTransportTarget,
-            set_cmd,
-        )
-        from pysnmp.proto.rfc1902 import Integer
-
-        dispatcher = SnmpDispatcher()
+        snmp_engine = await self._get_snmp_engine()
 
         try:
-            transport = await UdpTransportTarget.create((self.host, 161), timeout=2, retries=1)
+            transport = UdpTransportTarget((self.host, 161), timeout=2, retries=1)
 
-            error_indication, error_status, error_index, var_binds = await set_cmd(
-                dispatcher,
+            error_indication, error_status, error_index, var_binds = await setCmd(
+                snmp_engine,
                 CommunityData(self.community, mpModel=1),
                 transport,
+                ContextData(),
                 ObjectType(ObjectIdentity(oid), Integer(value)),
             )
 
@@ -147,8 +147,6 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
         except Exception as err:
             _LOGGER.error("SNMP SET error: %s", err)
             return False
-        finally:
-            dispatcher.transport_dispatcher.close_dispatcher()
 
     async def snmp_set(self, oid: str, value: int) -> bool:
         """Perform an SNMP SET request."""

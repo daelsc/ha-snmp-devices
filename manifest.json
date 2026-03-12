@@ -6,6 +6,6 @@
   "dependencies": [],
   "documentation": "https://github.com/home-assistant/core",
   "iot_class": "local_polling",
-  "requirements": ["pysnmp==6.2.6"],
+  "requirements": ["pysnmp>=6.2.6"],
   "version": "1.0.0"
 }
