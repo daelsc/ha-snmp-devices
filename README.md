@@ -2,143 +2,128 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-A Home Assistant integration for managing SNMP-enabled power devices including CyberPower PDUs and APC UPS units.
+A Home Assistant custom integration for monitoring and controlling SNMP-enabled infrastructure devices. Zero external dependencies — uses a built-in SNMPv2c client, so it won't break on Home Assistant upgrades.
 
 ## Supported Devices
 
-### CyberPower PDU
+### Power (PDUs & UPS)
 
-Tested and confirmed working:
-- **PDU41001** - Switched ATS PDU
+| Type | Manufacturer | Outlets | Sensors |
+|------|-------------|---------|---------|
+| CyberPower PDU | CyberPower | Yes | Power, energy |
+| APC UPS | APC/Schneider | Yes | Power, load, voltage, current, frequency, battery (capacity, runtime, temp, voltage, current) |
+| APC Rack PDU | APC/Schneider | Yes | Power, bank current |
+| APC Rack PDU2 | APC/Schneider | Yes | Power, energy, phase voltage/current/power |
+| Eaton UPS | Eaton | No | Power, load, voltage, current, frequency, battery, ambient temp |
+| Eaton ePDU | Eaton | Yes | Power, voltage, current |
+| Tripp Lite UPS | Tripp Lite | No | Power, load, voltage, current, frequency, battery |
+| Tripp Lite PDU | Tripp Lite | Yes | Power, current, voltage |
+| Raritan PDU | Raritan | Yes | Power, current, voltage, apparent power, energy |
+| ServerTech Sentry3 | Legrand | Yes | Current, voltage, power, apparent power, energy, power factor |
+| ServerTech Sentry4 | Legrand | Yes | Current, voltage, power, energy, power factor |
+| Liebert/Vertiv UPS | Vertiv | No | Power, load, voltage, current, battery |
+| UPS (RFC 1628) | Generic | No | Power, load, voltage, current, frequency, battery |
 
-Other CyberPower Switched ePDU models using the standard CyberPower MIB (OID base 1.3.6.1.4.1.3808.1.1.3) may also work but are untested.
+### Environmental
 
-### APC UPS
+| Type | Manufacturer | Sensors |
+|------|-------------|---------|
+| APC In-Row Cooling | APC/Schneider | Cooling output, rack inlet/supply/return temps, air flow, fan speed |
+| APC Environmental Monitor | APC/Schneider | Temperature, humidity |
+| Liebert/Vertiv Environmental | Vertiv | Temperature, humidity |
 
-Tested and confirmed working:
-- **Smart-UPS 3000-X** (SMX3000RMHV2UNC)
+### Networking & Compute
 
-Other APC UPS models with Network Management Cards and switchable outlet groups may also work but are untested.
+| Type | Manufacturer | Sensors |
+|------|-------------|---------|
+| Mikrotik RouterOS | Mikrotik | Board/CPU temp, voltage, power, current, fan speed |
+| Palo Alto Firewall | Palo Alto | Active sessions, session utilization, GP tunnels |
+| Ubiquiti UniFi AP | Ubiquiti | Connected clients |
+| Synology NAS | Synology | System temp, disk 1-4 temps |
+| Linux / Net-SNMP Host | Generic | CPU user/system/idle %, memory, swap |
+| Network Printer | Generic | Page count, supply levels (RFC 3805) |
 
-**Requirements**:
-- SNMP must be enabled with read-write access
-- Device must have switchable outlets/outlet groups for switch control
+OIDs that don't exist on a particular model simply show as unavailable — no errors.
 
 ## Features
 
-### CyberPower PDU
-- **Switches**: Control individual outlets (on/off)
-- **Sensors**:
-  - Total Power (W)
-  - Total Energy (kWh)
-
-### APC UPS
-- **Switches**: Control outlet groups (on/off)
-- **Sensors**:
-  - Output Power (W)
-  - Load (%)
-  - Battery Capacity (%)
-  - Runtime Remaining (minutes)
-  - Input Voltage (V)
-
-### Key Features
-- UI-based configuration (no YAML required)
-- Auto-discovery of outlets/outlet groups
-- Custom naming for each outlet
-- Reconfigure outlet names anytime via integration options
-- Efficient polling with shared data coordinator
+- **Zero dependencies** — built-in SNMPv2c client using only Python stdlib. Nothing to break on HA upgrades.
+- **22 device types** covering PDUs, UPSes, cooling, environmental, networking, and compute
+- **UI-based configuration** — no YAML required
+- **Auto-discovery** of outlets and outlet groups
+- **Custom outlet naming** via config flow and options
+- **Resilient startup** — integration loads even if first poll fails; entities go unavailable and recover automatically
 
 ## Installation
 
 ### HACS (Recommended)
 
 1. Open HACS in Home Assistant
-2. Click the three dots menu → "Custom repositories"
-3. Add this repository URL and select "Integration" as the category
-4. Click "Install"
+2. Click the three dots menu > **Custom repositories**
+3. Add `daelsc/ha-snmp-devices` and select **Integration**
+4. Click **Install**
 5. Restart Home Assistant
 
-### Manual Installation
+### Manual
 
-1. Copy the `custom_components/snmp_devices` folder to your Home Assistant's `custom_components` directory
-2. Restart Home Assistant
+Copy `custom_components/snmp_devices/` to your Home Assistant `custom_components/` directory and restart.
 
 ## Configuration
 
-1. Go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "SNMP Devices"
-4. Select your device type (CyberPower PDU or APC UPS)
-5. Enter the device IP address and SNMP community string (usually `private`)
-6. Configure outlet names as desired
+1. **Settings** > **Devices & Services** > **+ Add Integration**
+2. Search for **SNMP Devices**
+3. Select your device type
+4. Enter IP address and SNMP community string (usually `private` for read-write, `public` for read-only)
+5. Name outlets if applicable
 
-## SNMP Requirements
+### SNMP Requirements
 
-Your device must have SNMP enabled with read-write access:
-- **Community string**: Usually `private` for read-write, `public` for read-only
-- **SNMP version**: v1 or v2c
-- **Port**: 161 (UDP)
+- **SNMP v1 or v2c** enabled on the device
+- **Community string** with read access (read-write for outlet control)
+- **UDP port 161** reachable from Home Assistant
 
-### Enabling SNMP on CyberPower PDU
-1. Access the PDU web interface
-2. Navigate to Network → SNMP Settings
-3. Enable SNMP v1/v2c
-4. Set the read-write community string
+## Adding New Device Types
 
-### Enabling SNMP on APC Network Management Card
-1. Access the NMC web interface
-2. Navigate to Configuration → Network → SNMPv1 → Access Control
-3. Enable SNMPv1
-4. Configure a community with read-write access
+Device types are defined declaratively in `devices.py`. To add a new device, add one entry to `DEVICE_REGISTRY` — no other files need editing:
 
-## Supported OIDs
-
-### CyberPower PDU
-| Function | OID |
-|----------|-----|
-| Outlet State | 1.3.6.1.4.1.3808.1.1.3.3.3.1.1.4.X |
-| Outlet Name | 1.3.6.1.4.1.3808.1.1.3.3.2.1.1.2.X |
-| Total Power | 1.3.6.1.4.1.3808.1.1.3.2.3.1.1.8.1 |
-| Total Energy | 1.3.6.1.4.1.3808.1.1.3.2.3.1.1.10.1 |
-
-### APC UPS
-| Function | OID |
-|----------|-----|
-| Outlet Group State | 1.3.6.1.4.1.318.1.1.1.12.3.2.1.3.X |
-| Output Power | 1.3.6.1.4.1.318.1.1.1.4.2.8.0 |
-| Output Load | 1.3.6.1.4.1.318.1.1.1.4.2.3.0 |
-| Battery Capacity | 1.3.6.1.4.1.318.1.1.1.2.2.1.0 |
-| Battery Runtime | 1.3.6.1.4.1.318.1.1.1.2.2.3.0 |
-| Input Voltage | 1.3.6.1.4.1.318.1.1.1.3.2.1.0 |
+```python
+"my_device": DeviceDef(
+    key="my_device",
+    name="My Device",
+    manufacturer="Acme",
+    validation_oid="1.3.6.1.4.1.XXXX.1.0",  # OID to test connectivity
+    outlets=OutletDef(                         # omit if no switchable outlets
+        state_oid="1.3.6.1.4.1.XXXX.2",       # append .N for outlet N
+        command_oid="1.3.6.1.4.1.XXXX.3",
+        name_oid="1.3.6.1.4.1.XXXX.4",
+        state_on=1, state_off=2,
+        max_outlets=24,
+    ),
+    sensors=[
+        SensorDef(
+            key="power", name="Power",
+            oid="1.3.6.1.4.1.XXXX.5.0",
+            device_class="power", unit="W", state_class="measurement",
+        ),
+    ],
+),
+```
 
 ## Troubleshooting
 
-### Cannot connect to device
-- Verify the IP address is correct and device is reachable (`ping <ip>`)
+### Cannot connect
+- Verify IP is reachable: `ping <ip>`
 - Check SNMP is enabled on the device
-- Verify the community string (try `public` for read-only test)
-- Ensure UDP port 161 is not blocked by firewall
+- Test with: `snmpget -v2c -c public <ip> 1.3.6.1.2.1.1.1.0`
+- Ensure UDP 161 is not blocked
 
-### Outlets not discovered
-- Some devices may have fewer outlets than expected
-- Check device documentation for SNMP support
-- Verify your device model has switchable outlets
-
-### Enable debug logging
-Add to `configuration.yaml`:
+### Debug logging
 ```yaml
 logger:
-  default: info
   logs:
     custom_components.snmp_devices: debug
 ```
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-If you have a different CyberPower or APC model and confirm it works, please open an issue to add it to the tested devices list.
-
 ## License
 
-MIT License - see LICENSE file for details.
+MIT
