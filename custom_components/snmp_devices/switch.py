@@ -94,7 +94,7 @@ class SNMPDeviceSwitch(CoordinatorEntity[SNMPDeviceCoordinator], SwitchEntity):
             return
         outlets = self._device_def.outlets
         oid = f"{outlets.command_oid}.{self._outlet_num}"
-        success = await self.coordinator.async_snmp_set(oid, outlets.state_on)
+        success = await self.coordinator.async_snmp_set(oid, outlets.command_on)
         if success:
             if self.coordinator.data:
                 self.coordinator.data.outlets[self._outlet_num] = True
@@ -107,7 +107,7 @@ class SNMPDeviceSwitch(CoordinatorEntity[SNMPDeviceCoordinator], SwitchEntity):
             return
         outlets = self._device_def.outlets
         oid = f"{outlets.command_oid}.{self._outlet_num}"
-        success = await self.coordinator.async_snmp_set(oid, outlets.state_off)
+        success = await self.coordinator.async_snmp_set(oid, outlets.command_off)
         if success:
             if self.coordinator.data:
                 self.coordinator.data.outlets[self._outlet_num] = False
