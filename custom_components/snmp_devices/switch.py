@@ -11,22 +11,9 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    APC_OID_OUTLET_GROUP_STATE,
-    APC_STATE_OFF,
-    APC_STATE_ON,
-    CONF_DEVICE_TYPE,
-    CONF_OUTLET_COUNT,
-    CONF_OUTLET_NAMES,
-    CYBERPOWER_OID_OUTLET_COMMAND,
-    CYBERPOWER_STATE_OFF,
-    CYBERPOWER_STATE_ON,
-    DEVICE_TYPE_APC_UPS,
-    DEVICE_TYPE_CYBERPOWER_PDU,
-    DEVICE_TYPES,
-    DOMAIN,
-)
-from .coordinator import SNMPDeviceCoordinator, SNMPDeviceData
+from .const import CONF_DEVICE_TYPE, CONF_OUTLET_COUNT, CONF_OUTLET_NAMES, DOMAIN
+from .coordinator import SNMPDeviceCoordinator
+from .devices import DEVICE_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,10 +25,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up SNMP Device switches from a config entry."""
     coordinator: SNMPDeviceCoordinator = hass.data[DOMAIN][entry.entry_id]
+    device_type = entry.data.get(CONF_DEVICE_TYPE, "cyberpower_pdu")
+    device_def = DEVICE_REGISTRY.get(device_type)
+
+    if not device_def or not device_def.outlets:
+        return
 
     outlet_count = entry.data.get(CONF_OUTLET_COUNT, 0)
     outlet_names = entry.data.get(CONF_OUTLET_NAMES, {})
-    device_type = entry.data.get(CONF_DEVICE_TYPE, DEVICE_TYPE_CYBERPOWER_PDU)
 
     entities = []
     for outlet_num in range(1, outlet_count + 1):
@@ -52,7 +43,6 @@ async def async_setup_entry(
                 entry=entry,
                 outlet_num=outlet_num,
                 outlet_name=name,
-                device_type=device_type,
             )
         )
 
@@ -70,25 +60,25 @@ class SNMPDeviceSwitch(CoordinatorEntity[SNMPDeviceCoordinator], SwitchEntity):
         entry: ConfigEntry,
         outlet_num: int,
         outlet_name: str,
-        device_type: str,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator)
         self._entry = entry
         self._outlet_num = outlet_num
-        self._device_type = device_type
         self._attr_name = outlet_name
         self._attr_unique_id = f"{entry.entry_id}_outlet_{outlet_num}"
+
+        device_type = entry.data.get(CONF_DEVICE_TYPE, "cyberpower_pdu")
+        self._device_def = DEVICE_REGISTRY.get(device_type)
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info."""
-        device_type_name = DEVICE_TYPES.get(self._device_type, "SNMP Device")
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.data.get("name", self.coordinator.host),
-            manufacturer="CyberPower" if self._device_type == DEVICE_TYPE_CYBERPOWER_PDU else "APC",
-            model=device_type_name,
+            manufacturer=self._device_def.manufacturer if self._device_def else "Unknown",
+            model=self._device_def.name if self._device_def else "SNMP Device",
         )
 
     @property
@@ -100,14 +90,11 @@ class SNMPDeviceSwitch(CoordinatorEntity[SNMPDeviceCoordinator], SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the outlet on."""
-        if self._device_type == DEVICE_TYPE_CYBERPOWER_PDU:
-            oid = f"{CYBERPOWER_OID_OUTLET_COMMAND}.{self._outlet_num}"
-            value = CYBERPOWER_STATE_ON
-        else:  # APC UPS
-            oid = f"{APC_OID_OUTLET_GROUP_STATE}.{self._outlet_num}"
-            value = APC_STATE_ON
-
-        success = await self.coordinator.snmp_set(oid, value)
+        if not self._device_def or not self._device_def.outlets:
+            return
+        outlets = self._device_def.outlets
+        oid = f"{outlets.command_oid}.{self._outlet_num}"
+        success = await self.coordinator.async_snmp_set(oid, outlets.state_on)
         if success:
             if self.coordinator.data:
                 self.coordinator.data.outlets[self._outlet_num] = True
@@ -116,14 +103,11 @@ class SNMPDeviceSwitch(CoordinatorEntity[SNMPDeviceCoordinator], SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the outlet off."""
-        if self._device_type == DEVICE_TYPE_CYBERPOWER_PDU:
-            oid = f"{CYBERPOWER_OID_OUTLET_COMMAND}.{self._outlet_num}"
-            value = CYBERPOWER_STATE_OFF
-        else:  # APC UPS
-            oid = f"{APC_OID_OUTLET_GROUP_STATE}.{self._outlet_num}"
-            value = APC_STATE_OFF
-
-        success = await self.coordinator.snmp_set(oid, value)
+        if not self._device_def or not self._device_def.outlets:
+            return
+        outlets = self._device_def.outlets
+        oid = f"{outlets.command_oid}.{self._outlet_num}"
+        success = await self.coordinator.async_snmp_set(oid, outlets.state_off)
         if success:
             if self.coordinator.data:
                 self.coordinator.data.outlets[self._outlet_num] = False

@@ -10,24 +10,8 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 
-from .const import (
-    APC_OID_OUTLET_GROUP_STATE,
-    APC_OID_OUTPUT_POWER,
-    APC_STATE_ON,
-    APC_STATE_OFF,
-    CONF_DEVICE_TYPE,
-    CONF_OUTLET_COUNT,
-    CONF_OUTLET_NAMES,
-    CYBERPOWER_OID_OUTLET_NAME,
-    CYBERPOWER_OID_OUTLET_STATE,
-    CYBERPOWER_STATE_ON,
-    CYBERPOWER_STATE_OFF,
-    DEFAULT_COMMUNITY,
-    DEVICE_TYPE_APC_UPS,
-    DEVICE_TYPE_CYBERPOWER_PDU,
-    DEVICE_TYPES,
-    DOMAIN,
-)
+from .const import CONF_DEVICE_TYPE, CONF_OUTLET_COUNT, CONF_OUTLET_NAMES, DEFAULT_COMMUNITY, DOMAIN
+from .devices import DEVICE_REGISTRY, DEVICE_TYPES, DeviceDef
 from .snmp_client import snmp_get
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,83 +27,59 @@ async def _snmp_get_value(host: str, community: str, oid: str) -> Any:
     return resp.value
 
 
-async def validate_cyberpower(hass: HomeAssistant, host: str, community: str) -> dict[str, Any]:
-    """Validate CyberPower PDU connection and discover outlets."""
-    outlet_names: dict[int, str] = {}
-    outlet_count = 0
+async def validate_device(
+    hass: HomeAssistant, host: str, community: str, device_def: DeviceDef
+) -> dict[str, Any]:
+    """Validate connection and discover outlets for any device type."""
+    _LOGGER.info("Validating %s connection to %s", device_def.name, host)
 
-    _LOGGER.info("Validating CyberPower PDU connection to %s", host)
-
-    for outlet_num in range(1, 25):
-        oid = f"{CYBERPOWER_OID_OUTLET_STATE}.{outlet_num}"
-        try:
-            result = await _snmp_get_value(host, community, oid)
-            if result is None:
-                break
-            state = int(result)
-            if state in (CYBERPOWER_STATE_ON, CYBERPOWER_STATE_OFF):
-                outlet_count = outlet_num
-            else:
-                break
-        except Exception as err:
-            _LOGGER.debug("Error checking outlet %d: %s", outlet_num, err)
-            if outlet_num == 1:
-                raise ValueError(f"Could not connect: {err}") from err
-            break
-
-    if outlet_count == 0:
-        raise ValueError("Could not discover any outlets.")
-
-    for outlet_num in range(1, outlet_count + 1):
-        oid = f"{CYBERPOWER_OID_OUTLET_NAME}.{outlet_num}"
-        try:
-            result = await _snmp_get_value(host, community, oid)
-            if result:
-                name = str(result)
-                if name:
-                    outlet_names[outlet_num] = name
-                else:
-                    outlet_names[outlet_num] = f"Outlet {outlet_num}"
-            else:
-                outlet_names[outlet_num] = f"Outlet {outlet_num}"
-        except Exception:
-            outlet_names[outlet_num] = f"Outlet {outlet_num}"
-
-    return {"outlet_count": outlet_count, "outlet_names": outlet_names}
-
-
-async def validate_apc(hass: HomeAssistant, host: str, community: str) -> dict[str, Any]:
-    """Validate APC UPS connection and discover outlet groups."""
-    outlet_names: dict[int, str] = {}
-    outlet_count = 0
-
-    _LOGGER.info("Validating APC UPS connection to %s", host)
-
+    # Test connectivity
     try:
-        result = await _snmp_get_value(host, community, APC_OID_OUTPUT_POWER)
+        result = await _snmp_get_value(host, community, device_def.validation_oid)
         if result is None:
-            raise ValueError("Could not read UPS power data")
+            raise ValueError(f"Could not read from {device_def.name}")
     except Exception as err:
-        raise ValueError(f"Could not connect to APC UPS: {err}") from err
+        raise ValueError(f"Could not connect to {device_def.name}: {err}") from err
 
-    for group_num in range(1, 10):
-        oid = f"{APC_OID_OUTLET_GROUP_STATE}.{group_num}"
-        try:
-            result = await _snmp_get_value(host, community, oid)
-            if result is None:
+    outlet_count = 0
+    outlet_names: dict[int, str] = {}
+
+    if device_def.outlets:
+        outlets = device_def.outlets
+
+        # Discover outlets
+        for num in range(1, outlets.max_outlets + 1):
+            oid = f"{outlets.state_oid}.{num}"
+            try:
+                result = await _snmp_get_value(host, community, oid)
+                if result is None:
+                    break
+                state = int(result)
+                if state in (outlets.state_on, outlets.state_off):
+                    outlet_count = num
+                    outlet_names[num] = f"{outlets.label} {num}"
+                else:
+                    break
+            except Exception as err:
+                _LOGGER.debug("Error checking %s %d: %s", outlets.label.lower(), num, err)
+                if num == 1:
+                    raise ValueError(f"Could not connect: {err}") from err
                 break
-            state = int(result)
-            if state in (APC_STATE_ON, APC_STATE_OFF):
-                outlet_count = group_num
-                outlet_names[group_num] = f"Outlet Group {group_num}"
-            else:
-                break
-        except Exception as err:
-            _LOGGER.debug("Error checking outlet group %d: %s", group_num, err)
-            break
 
-    _LOGGER.info("Discovered %d outlet groups on APC UPS", outlet_count)
+        # Try to read outlet names from device
+        if outlets.name_oid:
+            for num in range(1, outlet_count + 1):
+                oid = f"{outlets.name_oid}.{num}"
+                try:
+                    result = await _snmp_get_value(host, community, oid)
+                    if result:
+                        name = str(result)
+                        if name:
+                            outlet_names[num] = name
+                except Exception:
+                    pass
 
+    _LOGGER.info("Discovered %d outlets on %s", outlet_count, device_def.name)
     return {"outlet_count": outlet_count, "outlet_names": outlet_names}
 
 
@@ -176,28 +136,26 @@ class SNMPDevicesConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(f"{self._device_type}_{self._host}")
             self._abort_if_unique_id_configured()
 
-            try:
-                if self._device_type == DEVICE_TYPE_CYBERPOWER_PDU:
-                    result = await validate_cyberpower(self.hass, self._host, self._community)
-                elif self._device_type == DEVICE_TYPE_APC_UPS:
-                    result = await validate_apc(self.hass, self._host, self._community)
-                else:
-                    raise ValueError(f"Unknown device type: {self._device_type}")
-
-                self._outlet_count = result["outlet_count"]
-                self._discovered_names = result["outlet_names"]
-
-                if self._outlet_count > 0:
-                    return await self.async_step_outlets()
-                else:
-                    return self._create_entry()
-
-            except ValueError as err:
-                _LOGGER.error("Validation error: %s", err)
-                errors["base"] = "cannot_connect"
-            except Exception as err:
-                _LOGGER.exception("Unexpected exception: %s", err)
+            device_def = DEVICE_REGISTRY.get(self._device_type)
+            if not device_def:
                 errors["base"] = "unknown"
+            else:
+                try:
+                    result = await validate_device(self.hass, self._host, self._community, device_def)
+                    self._outlet_count = result["outlet_count"]
+                    self._discovered_names = result["outlet_names"]
+
+                    if self._outlet_count > 0:
+                        return await self.async_step_outlets()
+                    else:
+                        return self._create_entry()
+
+                except ValueError as err:
+                    _LOGGER.error("Validation error: %s", err)
+                    errors["base"] = "cannot_connect"
+                except Exception as err:
+                    _LOGGER.exception("Unexpected exception: %s", err)
+                    errors["base"] = "unknown"
 
         schema = vol.Schema({
             vol.Required(CONF_HOST): str,

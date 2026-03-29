@@ -12,24 +12,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
-    APC_OID_BATTERY_CAPACITY,
-    APC_OID_BATTERY_RUNTIME,
-    APC_OID_INPUT_VOLTAGE,
-    APC_OID_OUTLET_GROUP_STATE,
-    APC_OID_OUTPUT_LOAD,
-    APC_OID_OUTPUT_POWER,
-    APC_STATE_ON,
     CONF_DEVICE_TYPE,
     CONF_OUTLET_COUNT,
-    CYBERPOWER_OID_ENERGY,
-    CYBERPOWER_OID_OUTLET_STATE,
-    CYBERPOWER_OID_POWER,
-    CYBERPOWER_STATE_ON,
     DEFAULT_SCAN_INTERVAL,
-    DEVICE_TYPE_APC_UPS,
-    DEVICE_TYPE_CYBERPOWER_PDU,
     DOMAIN,
 )
+from .devices import DEVICE_REGISTRY
 from .snmp_client import snmp_get, snmp_set
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,15 +25,10 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class SNMPDeviceData:
-    """Class to hold SNMP device data."""
+    """Generic container for SNMP device data."""
 
-    outlets: dict[int, bool] = field(default_factory=dict)  # outlet_num -> is_on
-    power: float | None = None  # Watts
-    energy: float | None = None  # kWh
-    load_percent: float | None = None  # Percent (APC)
-    battery_capacity: float | None = None  # Percent (APC)
-    battery_runtime: float | None = None  # Minutes (APC)
-    input_voltage: float | None = None  # Volts (APC)
+    outlets: dict[int, bool] = field(default_factory=dict)
+    sensors: dict[str, float | None] = field(default_factory=dict)
 
 
 class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
@@ -53,15 +36,11 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
 
     config_entry: ConfigEntry
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
         self.host = entry.data[CONF_HOST]
         self.community = entry.data.get("community", "private")
-        self.device_type = entry.data.get(CONF_DEVICE_TYPE, DEVICE_TYPE_CYBERPOWER_PDU)
+        self.device_type = entry.data.get(CONF_DEVICE_TYPE, "cyberpower_pdu")
         self.outlet_count = entry.data.get(CONF_OUTLET_COUNT, 8)
 
         super().__init__(
@@ -73,11 +52,7 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
         )
 
     async def async_config_entry_first_refresh_lenient(self) -> None:
-        """First refresh that doesn't fail setup on error.
-
-        Entities show as unavailable and the coordinator retries on its
-        normal interval.
-        """
+        """First refresh that doesn't fail setup on error."""
         try:
             await self.async_config_entry_first_refresh()
         except Exception as err:
@@ -101,8 +76,8 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
             _LOGGER.debug("SNMP GET error for %s: %s", oid, err)
             return None
 
-    async def _async_snmp_set(self, oid: str, value: int) -> bool:
-        """Perform async SNMP SET."""
+    async def async_snmp_set(self, oid: str, value: int) -> bool:
+        """Perform an SNMP SET request."""
         try:
             resp = await snmp_set(self.host, self.community, oid, value)
             if resp.error:
@@ -113,110 +88,37 @@ class SNMPDeviceCoordinator(DataUpdateCoordinator[SNMPDeviceData]):
             _LOGGER.error("SNMP SET error: %s", err)
             return False
 
-    async def async_snmp_set(self, oid: str, value: int) -> bool:
-        """Perform an SNMP SET request."""
-        return await self._async_snmp_set(oid, value)
-
     async def _async_update_data(self) -> SNMPDeviceData:
-        """Fetch data from device.
-
-        Returns empty data on failure so entities go unavailable instead
-        of the integration failing entirely.
-        """
-        if self.device_type == DEVICE_TYPE_CYBERPOWER_PDU:
-            return await self._fetch_cyberpower_data()
-        elif self.device_type == DEVICE_TYPE_APC_UPS:
-            return await self._fetch_apc_data()
-        else:
+        """Fetch data from device."""
+        device_def = DEVICE_REGISTRY.get(self.device_type)
+        if device_def is None:
             _LOGGER.error("Unknown device type: %s", self.device_type)
             return SNMPDeviceData()
 
-    async def _fetch_cyberpower_data(self) -> SNMPDeviceData:
-        """Fetch data from CyberPower PDU."""
         data = SNMPDeviceData()
 
         try:
-            for outlet_num in range(1, self.outlet_count + 1):
-                oid = f"{CYBERPOWER_OID_OUTLET_STATE}.{outlet_num}"
-                result = await self._async_snmp_get(oid)
+            # Fetch outlet states
+            if device_def.outlets:
+                for num in range(1, self.outlet_count + 1):
+                    oid = f"{device_def.outlets.state_oid}.{num}"
+                    result = await self._async_snmp_get(oid)
+                    if result is not None:
+                        try:
+                            data.outlets[num] = int(result) == device_def.outlets.state_on
+                        except (ValueError, TypeError):
+                            _LOGGER.debug("Invalid outlet state for %d: %s", num, result)
+
+            # Fetch sensors
+            for sensor_def in device_def.sensors:
+                result = await self._async_snmp_get(sensor_def.oid)
                 if result is not None:
                     try:
-                        state_value = int(result)
-                        data.outlets[outlet_num] = state_value == CYBERPOWER_STATE_ON
+                        data.sensors[sensor_def.key] = float(int(result)) * sensor_def.scale
                     except (ValueError, TypeError):
-                        _LOGGER.debug("Invalid outlet state for outlet %d: %s", outlet_num, result)
-
-            power_result = await self._async_snmp_get(CYBERPOWER_OID_POWER)
-            if power_result is not None:
-                try:
-                    data.power = float(int(power_result))
-                except (ValueError, TypeError):
-                    pass
-
-            energy_result = await self._async_snmp_get(CYBERPOWER_OID_ENERGY)
-            if energy_result is not None:
-                try:
-                    data.energy = int(energy_result) / 10.0
-                except (ValueError, TypeError):
-                    pass
+                        _LOGGER.debug("Invalid sensor value for %s: %s", sensor_def.key, result)
 
         except Exception as err:
-            _LOGGER.warning("Error communicating with CyberPower PDU at %s: %s", self.host, err)
-
-        return data
-
-    async def _fetch_apc_data(self) -> SNMPDeviceData:
-        """Fetch data from APC UPS."""
-        data = SNMPDeviceData()
-
-        try:
-            for group_num in range(1, self.outlet_count + 1):
-                oid = f"{APC_OID_OUTLET_GROUP_STATE}.{group_num}"
-                result = await self._async_snmp_get(oid)
-                if result is not None:
-                    try:
-                        state_value = int(result)
-                        data.outlets[group_num] = state_value == APC_STATE_ON
-                    except (ValueError, TypeError):
-                        _LOGGER.debug("Invalid outlet group state for group %d: %s", group_num, result)
-
-            power_result = await self._async_snmp_get(APC_OID_OUTPUT_POWER)
-            if power_result is not None:
-                try:
-                    data.power = float(int(power_result))
-                except (ValueError, TypeError):
-                    pass
-
-            load_result = await self._async_snmp_get(APC_OID_OUTPUT_LOAD)
-            if load_result is not None:
-                try:
-                    data.load_percent = float(int(load_result))
-                except (ValueError, TypeError):
-                    pass
-
-            battery_result = await self._async_snmp_get(APC_OID_BATTERY_CAPACITY)
-            if battery_result is not None:
-                try:
-                    data.battery_capacity = float(int(battery_result))
-                except (ValueError, TypeError):
-                    pass
-
-            runtime_result = await self._async_snmp_get(APC_OID_BATTERY_RUNTIME)
-            if runtime_result is not None:
-                try:
-                    ticks = int(runtime_result)
-                    data.battery_runtime = ticks / 6000.0
-                except (ValueError, TypeError):
-                    pass
-
-            voltage_result = await self._async_snmp_get(APC_OID_INPUT_VOLTAGE)
-            if voltage_result is not None:
-                try:
-                    data.input_voltage = float(int(voltage_result))
-                except (ValueError, TypeError):
-                    pass
-
-        except Exception as err:
-            _LOGGER.warning("Error communicating with APC UPS at %s: %s", self.host, err)
+            _LOGGER.warning("Error communicating with %s at %s: %s", device_def.name, self.host, err)
 
         return data
