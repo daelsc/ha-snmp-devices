@@ -90,6 +90,29 @@ _LIEBERT = "1.3.6.1.4.1.476.1.42"
 # Tripp Lite (TRIPPLITE-MIB)
 _TRIPPLITE = "1.3.6.1.4.1.850"
 
+# ServerTech / Legrand (Sentry3-MIB)
+_SENTRY3 = "1.3.6.1.4.1.1718.3"
+# ServerTech / Legrand (Sentry4-MIB)
+_SENTRY4 = "1.3.6.1.4.1.1718.4"
+
+# Mikrotik RouterOS (MIKROTIK-MIB)
+_MIKROTIK = "1.3.6.1.4.1.14988.1.1.3"
+
+# Synology NAS (SYNOLOGY-MIB)
+_SYNOLOGY = "1.3.6.1.4.1.6574"
+
+# Net-SNMP / Linux (UCD-SNMP-MIB)
+_UCD_SNMP = "1.3.6.1.4.1.2021"
+
+# Printer-MIB (RFC 3805)
+_PRINTER = "1.3.6.1.2.1.43"
+
+# Palo Alto (PAN-COMMON-MIB)
+_PALO_ALTO = "1.3.6.1.4.1.25461.2.1.2"
+
+# Ubiquiti UniFi (UBNT-UniFi-MIB)
+_UBNT = "1.3.6.1.4.1.41112.1.6"
+
 
 # =============================================================================
 # Device registry
@@ -663,6 +686,298 @@ DEVICE_REGISTRY: dict[str, DeviceDef] = {
             SensorDef(key="battery_temperature", name="Battery Temperature",
                       oid=f"{_LIEBERT}.3.9.20.4.0",       # lgpPwrBatteryTemperature (°C)
                       device_class="temperature", unit="°C", state_class="measurement"),
+        ],
+    ),
+
+    # =================================================================
+    # Liebert/Vertiv Environmental Monitor
+    # LIEBERT-GP-ENVIRONMENTAL-MIB (.1.3.6.1.4.1.476.1.42.3.4)
+    # Standalone temp/humidity probes or UPS-integrated sensors
+    # =================================================================
+    "liebert_env": DeviceDef(
+        key="liebert_env",
+        name="Liebert/Vertiv Environmental",
+        manufacturer="Vertiv",
+        validation_oid=f"{_LIEBERT}.3.4.1.2.3.1.3.1",  # lgpEnvTemperatureCelsius sensor 1
+        sensors=[
+            SensorDef(key="temperature", name="Temperature",
+                      oid=f"{_LIEBERT}.3.4.1.2.3.1.3.1",  # lgpEnvTemperatureCelsius sensor 1 (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+            SensorDef(key="humidity", name="Humidity",
+                      oid=f"{_LIEBERT}.3.4.2.2.3.1.3.1",  # lgpEnvHumidityRelative sensor 1 (%)
+                      device_class="humidity", unit="%", state_class="measurement"),
+        ],
+    ),
+
+    # =================================================================
+    # ServerTech Sentry3 PDU (CDU, Switched, Smart)
+    # Sentry3-MIB — indexes: tower=1, infeed=1
+    # =================================================================
+    "servertech_s3": DeviceDef(
+        key="servertech_s3",
+        name="ServerTech Sentry3 PDU",
+        manufacturer="Server Technology",
+        validation_oid=f"{_SENTRY3}.2.2.1.6.1.1",  # infeedVoltage tower 1 infeed 1
+        outlets=OutletDef(
+            state_oid=f"{_SENTRY3}.2.3.1.5.1.1",          # outletStatus .tower1.infeed1.N
+            command_oid=f"{_SENTRY3}.2.3.1.11.1.1",        # outletControlAction .tower1.infeed1.N
+            name_oid=f"{_SENTRY3}.2.3.1.3.1.1",            # outletName .tower1.infeed1.N
+            state_on=1,     # on (read)
+            state_off=0,    # off (read)
+            max_outlets=48,
+            command_on=1,   # on
+            command_off=2,  # off
+            label="Outlet",
+        ),
+        sensors=[
+            SensorDef(key="current", name="Infeed Current",
+                      oid=f"{_SENTRY3}.2.2.1.7.1.1",     # infeedLoadValue (0.01 A)
+                      device_class="current", unit="A", state_class="measurement",
+                      scale=0.01, precision=2),
+            SensorDef(key="voltage", name="Infeed Voltage",
+                      oid=f"{_SENTRY3}.2.2.1.6.1.1",     # infeedVoltage (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="power", name="Power",
+                      oid=f"{_SENTRY3}.2.2.1.12.1.1",    # infeedPower (W)
+                      device_class="power", unit="W", state_class="measurement"),
+            SensorDef(key="apparent_power", name="Apparent Power",
+                      oid=f"{_SENTRY3}.2.2.1.10.1.1",    # infeedApparentPower (VA)
+                      device_class="apparent_power", unit="VA", state_class="measurement"),
+            SensorDef(key="energy", name="Energy",
+                      oid=f"{_SENTRY3}.2.2.1.13.1.1",    # infeedEnergy (0.1 kWh)
+                      device_class="energy", unit="kWh", state_class="total_increasing",
+                      scale=0.1, precision=1),
+            SensorDef(key="power_factor", name="Power Factor",
+                      oid=f"{_SENTRY3}.2.2.1.11.1.1",    # infeedPowerFactor (0.01)
+                      device_class="power_factor", unit=None, state_class="measurement",
+                      scale=0.01, precision=2),
+        ],
+    ),
+
+    # =================================================================
+    # ServerTech Sentry4 PDU (PRO2, Smart CDU)
+    # Sentry4-MIB — indexes: unit=1
+    # =================================================================
+    "servertech_s4": DeviceDef(
+        key="servertech_s4",
+        name="ServerTech Sentry4 PDU",
+        manufacturer="Server Technology",
+        validation_oid=f"{_SENTRY4}.1.3.3.1.4.1.1",  # st4LineCurrentValue unit 1 line 1
+        outlets=OutletDef(
+            state_oid=f"{_SENTRY4}.1.8.2.1.3.1",          # st4OutletControlState .unit1.N
+            command_oid=f"{_SENTRY4}.1.8.2.1.2.1",         # st4OutletControlAction .unit1.N
+            name_oid=f"{_SENTRY4}.1.8.3.1.1.1",            # st4OutletConfigDescription .unit1.N
+            state_on=1,     # on (read)
+            state_off=2,    # off (read)
+            max_outlets=48,
+            command_on=1,   # on
+            command_off=2,  # off
+            label="Outlet",
+        ),
+        sensors=[
+            SensorDef(key="current", name="Line Current",
+                      oid=f"{_SENTRY4}.1.3.3.1.4.1.1",   # st4LineCurrentValue unit 1 line 1 (0.01 A)
+                      device_class="current", unit="A", state_class="measurement",
+                      scale=0.01, precision=2),
+            SensorDef(key="voltage", name="Line Voltage",
+                      oid=f"{_SENTRY4}.1.3.3.1.6.1.1",   # st4LineVoltage unit 1 line 1 (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="power", name="Power",
+                      oid=f"{_SENTRY4}.1.2.3.1.6.1",     # st4UnitPower unit 1 (W)
+                      device_class="power", unit="W", state_class="measurement"),
+            SensorDef(key="energy", name="Energy",
+                      oid=f"{_SENTRY4}.1.2.3.1.7.1",     # st4UnitEnergy unit 1 (0.1 kWh)
+                      device_class="energy", unit="kWh", state_class="total_increasing",
+                      scale=0.1, precision=1),
+            SensorDef(key="power_factor", name="Power Factor",
+                      oid=f"{_SENTRY4}.1.3.3.1.5.1.1",   # st4LinePowerFactor unit 1 line 1 (0.01)
+                      device_class="power_factor", unit=None, state_class="measurement",
+                      scale=0.01, precision=2),
+        ],
+    ),
+
+    # =================================================================
+    # Mikrotik RouterOS
+    # MIKROTIK-MIB mtxrHealth (.1.3.6.1.4.1.14988.1.1.3)
+    # Not all OIDs available on all hardware — missing ones show unavailable
+    # =================================================================
+    "mikrotik": DeviceDef(
+        key="mikrotik",
+        name="Mikrotik RouterOS",
+        manufacturer="Mikrotik",
+        validation_oid=f"{_MIKROTIK}.10.0",  # mtxrHlTemperature
+        sensors=[
+            SensorDef(key="temperature", name="Board Temperature",
+                      oid=f"{_MIKROTIK}.10.0",            # mtxrHlTemperature (0.1 °C)
+                      device_class="temperature", unit="°C", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="cpu_temperature", name="CPU Temperature",
+                      oid=f"{_MIKROTIK}.11.0",            # mtxrHlProcessorTemperature (0.1 °C)
+                      device_class="temperature", unit="°C", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="voltage", name="Voltage",
+                      oid=f"{_MIKROTIK}.8.0",             # mtxrHlVoltage (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="power", name="Power Consumption",
+                      oid=f"{_MIKROTIK}.12.0",            # mtxrHlPower (0.1 W)
+                      device_class="power", unit="W", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="current", name="Current",
+                      oid=f"{_MIKROTIK}.13.0",            # mtxrHlCurrent (mA)
+                      device_class="current", unit="A", state_class="measurement",
+                      scale=0.001, precision=3),
+            SensorDef(key="fan_speed_1", name="Fan Speed 1",
+                      oid=f"{_MIKROTIK}.17.0",            # mtxrHlFanSpeed1 (RPM)
+                      device_class=None, unit="RPM", state_class="measurement",
+                      icon="mdi:fan"),
+            SensorDef(key="fan_speed_2", name="Fan Speed 2",
+                      oid=f"{_MIKROTIK}.18.0",            # mtxrHlFanSpeed2 (RPM)
+                      device_class=None, unit="RPM", state_class="measurement",
+                      icon="mdi:fan"),
+        ],
+    ),
+
+    # =================================================================
+    # Synology NAS
+    # SYNOLOGY-SYSTEM-MIB + SYNOLOGY-DISK-MIB
+    # =================================================================
+    "synology": DeviceDef(
+        key="synology",
+        name="Synology NAS",
+        manufacturer="Synology",
+        validation_oid=f"{_SYNOLOGY}.1.2.0",  # systemTemperature
+        sensors=[
+            SensorDef(key="temperature", name="System Temperature",
+                      oid=f"{_SYNOLOGY}.1.2.0",           # systemTemperature (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+            SensorDef(key="disk1_temp", name="Disk 1 Temperature",
+                      oid=f"{_SYNOLOGY}.2.1.1.6.0",       # diskTemperature disk 0 (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+            SensorDef(key="disk2_temp", name="Disk 2 Temperature",
+                      oid=f"{_SYNOLOGY}.2.1.1.6.1",       # diskTemperature disk 1 (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+            SensorDef(key="disk3_temp", name="Disk 3 Temperature",
+                      oid=f"{_SYNOLOGY}.2.1.1.6.2",       # diskTemperature disk 2 (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+            SensorDef(key="disk4_temp", name="Disk 4 Temperature",
+                      oid=f"{_SYNOLOGY}.2.1.1.6.3",       # diskTemperature disk 3 (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+        ],
+    ),
+
+    # =================================================================
+    # Net-SNMP / Linux Host
+    # UCD-SNMP-MIB (.1.3.6.1.4.1.2021) — works with snmpd on Linux,
+    # Unraid, TrueNAS, Proxmox, etc.
+    # =================================================================
+    "linux_snmp": DeviceDef(
+        key="linux_snmp",
+        name="Linux / Net-SNMP Host",
+        manufacturer="Generic",
+        validation_oid=f"{_UCD_SNMP}.11.11.0",  # ssCpuIdle
+        sensors=[
+            SensorDef(key="cpu_user", name="CPU User",
+                      oid=f"{_UCD_SNMP}.11.9.0",          # ssCpuUser (%)
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:cpu-64-bit"),
+            SensorDef(key="cpu_system", name="CPU System",
+                      oid=f"{_UCD_SNMP}.11.10.0",         # ssCpuSystem (%)
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:cpu-64-bit"),
+            SensorDef(key="cpu_idle", name="CPU Idle",
+                      oid=f"{_UCD_SNMP}.11.11.0",         # ssCpuIdle (%)
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:cpu-64-bit"),
+            SensorDef(key="memory_total", name="Memory Total",
+                      oid=f"{_UCD_SNMP}.4.5.0",           # memTotalReal (kB)
+                      device_class="data_size", unit="kB", state_class="measurement"),
+            SensorDef(key="memory_available", name="Memory Available",
+                      oid=f"{_UCD_SNMP}.4.6.0",           # memAvailReal (kB)
+                      device_class="data_size", unit="kB", state_class="measurement"),
+            SensorDef(key="swap_total", name="Swap Total",
+                      oid=f"{_UCD_SNMP}.4.3.0",           # memTotalSwap (kB)
+                      device_class="data_size", unit="kB", state_class="measurement"),
+            SensorDef(key="swap_available", name="Swap Available",
+                      oid=f"{_UCD_SNMP}.4.4.0",           # memAvailSwap (kB)
+                      device_class="data_size", unit="kB", state_class="measurement"),
+        ],
+    ),
+
+    # =================================================================
+    # Network Printer (RFC 3805 Printer-MIB)
+    # Works with HP, Brother, Canon, Epson, Lexmark, etc.
+    # =================================================================
+    "printer": DeviceDef(
+        key="printer",
+        name="Network Printer",
+        manufacturer="Generic",
+        validation_oid=f"{_PRINTER}.10.2.1.4.1.1",  # prtMarkerLifeCount marker 1
+        sensors=[
+            SensorDef(key="page_count", name="Page Count",
+                      oid=f"{_PRINTER}.10.2.1.4.1.1",     # prtMarkerLifeCount (pages)
+                      device_class=None, unit="pages", state_class="total_increasing",
+                      icon="mdi:printer"),
+            SensorDef(key="supply1_level", name="Supply 1 Level",
+                      oid=f"{_PRINTER}.11.1.1.9.1.1",     # prtMarkerSuppliesLevel supply 1
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:printer"),
+            SensorDef(key="supply2_level", name="Supply 2 Level",
+                      oid=f"{_PRINTER}.11.1.1.9.1.2",     # prtMarkerSuppliesLevel supply 2
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:printer"),
+            SensorDef(key="supply3_level", name="Supply 3 Level",
+                      oid=f"{_PRINTER}.11.1.1.9.1.3",     # prtMarkerSuppliesLevel supply 3
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:printer"),
+            SensorDef(key="supply4_level", name="Supply 4 Level",
+                      oid=f"{_PRINTER}.11.1.1.9.1.4",     # prtMarkerSuppliesLevel supply 4
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:printer"),
+        ],
+    ),
+
+    # =================================================================
+    # Palo Alto Firewall
+    # PAN-COMMON-MIB (.1.3.6.1.4.1.25461.2.1.2)
+    # =================================================================
+    "palo_alto": DeviceDef(
+        key="palo_alto",
+        name="Palo Alto Firewall",
+        manufacturer="Palo Alto Networks",
+        validation_oid=f"{_PALO_ALTO}.1.1.0",  # panSessionActive
+        sensors=[
+            SensorDef(key="active_sessions", name="Active Sessions",
+                      oid=f"{_PALO_ALTO}.3.1.0",          # panSessionActive
+                      device_class=None, unit="sessions", state_class="measurement",
+                      icon="mdi:firewall"),
+            SensorDef(key="session_util", name="Session Utilization",
+                      oid=f"{_PALO_ALTO}.3.3.0",          # panSessionUtilization (%)
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:firewall"),
+            SensorDef(key="gp_active_tunnels", name="GlobalProtect Tunnels",
+                      oid=f"{_PALO_ALTO}.5.1.3.0",        # panGPGWUtilizationActiveTunnels
+                      device_class=None, unit="tunnels", state_class="measurement",
+                      icon="mdi:vpn"),
+        ],
+    ),
+
+    # =================================================================
+    # Ubiquiti UniFi AP
+    # UBNT-UniFi-MIB (.1.3.6.1.4.1.41112.1.6)
+    # =================================================================
+    "unifi_ap": DeviceDef(
+        key="unifi_ap",
+        name="Ubiquiti UniFi AP",
+        manufacturer="Ubiquiti",
+        validation_oid=f"{_UBNT}.3.6.0",  # unifiApSystemModel
+        sensors=[
+            SensorDef(key="client_count", name="Connected Clients",
+                      oid=f"{_UBNT}.3.5.0",               # unifiApSystemNumClients
+                      device_class=None, unit="clients", state_class="measurement",
+                      icon="mdi:wifi"),
         ],
     ),
 }
