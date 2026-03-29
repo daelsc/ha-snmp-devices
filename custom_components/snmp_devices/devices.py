@@ -87,6 +87,9 @@ _RARITAN = "1.3.6.1.4.1.13742.6"
 # Liebert/Vertiv (LIEBERT-GP-ENVIRONMENTAL-MIB)
 _LIEBERT = "1.3.6.1.4.1.476.1.42"
 
+# Tripp Lite (TRIPPLITE-MIB)
+_TRIPPLITE = "1.3.6.1.4.1.850"
+
 
 # =============================================================================
 # Device registry
@@ -525,6 +528,99 @@ DEVICE_REGISTRY: dict[str, DeviceDef] = {
             SensorDef(key="energy", name="Energy",
                       oid=f"{_RARITAN}.5.2.3.1.4.1.1.7",  # inletSensorValue pdu 1 inlet 1 activeEnergy (Wh)
                       device_class="energy", unit="Wh", state_class="total_increasing"),
+        ],
+    ),
+
+    # =================================================================
+    # Tripp Lite UPS (proprietary TRIPPLITE-MIB)
+    # SmartOnline, SmartPro with SNMPWEBCARD/WEBCARDLX
+    # For models that support RFC 1628, use ups_rfc1628 instead.
+    # =================================================================
+    "tripplite_ups": DeviceDef(
+        key="tripplite_ups",
+        name="Tripp Lite UPS",
+        manufacturer="Tripp Lite",
+        validation_oid=f"{_TRIPPLITE}.100.1.2.2.0",  # tlUpsOutputLoad
+        sensors=[
+            # --- Output ---
+            SensorDef(key="power", name="Output Power",
+                      oid=f"{_TRIPPLITE}.100.1.2.2.3.0",  # tlUpsOutputPower (W)
+                      device_class="power", unit="W", state_class="measurement"),
+            SensorDef(key="load", name="Output Load",
+                      oid=f"{_TRIPPLITE}.100.1.2.2.0",    # tlUpsOutputLoad (%)
+                      device_class=None, unit="%", state_class="measurement",
+                      icon="mdi:gauge"),
+            SensorDef(key="output_voltage", name="Output Voltage",
+                      oid=f"{_TRIPPLITE}.100.1.2.2.1.0",  # tlUpsOutputVoltage (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="output_current", name="Output Current",
+                      oid=f"{_TRIPPLITE}.100.1.2.2.2.0",  # tlUpsOutputCurrent (0.1 A)
+                      device_class="current", unit="A", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="output_frequency", name="Output Frequency",
+                      oid=f"{_TRIPPLITE}.100.1.2.2.4.0",  # tlUpsOutputFrequency (0.1 Hz)
+                      device_class="frequency", unit="Hz", state_class="measurement",
+                      scale=0.1, precision=1),
+            # --- Input ---
+            SensorDef(key="input_voltage", name="Input Voltage",
+                      oid=f"{_TRIPPLITE}.100.1.2.1.1.0",  # tlUpsInputVoltage (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="input_frequency", name="Input Frequency",
+                      oid=f"{_TRIPPLITE}.100.1.2.1.2.0",  # tlUpsInputFrequency (0.1 Hz)
+                      device_class="frequency", unit="Hz", state_class="measurement",
+                      scale=0.1, precision=1),
+            # --- Battery ---
+            SensorDef(key="battery_capacity", name="Battery Capacity",
+                      oid=f"{_TRIPPLITE}.100.1.2.3.1.0",  # tlUpsBatteryCapacity (%)
+                      device_class="battery", unit="%", state_class="measurement"),
+            SensorDef(key="battery_runtime", name="Runtime Remaining",
+                      oid=f"{_TRIPPLITE}.100.1.2.3.3.0",  # tlUpsBatteryRuntime (seconds)
+                      device_class="duration", unit="min", state_class="measurement",
+                      scale=1 / 60, precision=0),
+            SensorDef(key="battery_voltage", name="Battery Voltage",
+                      oid=f"{_TRIPPLITE}.100.1.2.3.2.0",  # tlUpsBatteryVoltage (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="battery_temperature", name="Battery Temperature",
+                      oid=f"{_TRIPPLITE}.100.1.2.3.4.0",  # tlUpsBatteryTemperature (°C)
+                      device_class="temperature", unit="°C", state_class="measurement"),
+        ],
+    ),
+
+    # =================================================================
+    # Tripp Lite PDU (PDUMIB)
+    # PDUMH, PDUMNSP, switched PDU models with SNMPWEBCARD
+    # =================================================================
+    "tripplite_pdu": DeviceDef(
+        key="tripplite_pdu",
+        name="Tripp Lite PDU",
+        manufacturer="Tripp Lite",
+        validation_oid=f"{_TRIPPLITE}.100.1.10.2.1.0",  # tlPduCircuitLoad circuit 1
+        outlets=OutletDef(
+            state_oid=f"{_TRIPPLITE}.100.1.10.3.2.1.2",      # tlPduOutletState .N (1=on, 2=off)
+            command_oid=f"{_TRIPPLITE}.100.1.10.3.2.1.4",     # tlPduOutletCommand .N
+            name_oid=f"{_TRIPPLITE}.100.1.10.3.2.1.3",        # tlPduOutletName .N
+            state_on=1,
+            state_off=2,
+            max_outlets=24,
+            command_on=1,   # on
+            command_off=2,  # off
+            label="Outlet",
+        ),
+        sensors=[
+            SensorDef(key="power", name="Power",
+                      oid=f"{_TRIPPLITE}.100.1.10.1.3.0",  # tlPduDevicePower (W)
+                      device_class="power", unit="W", state_class="measurement"),
+            SensorDef(key="current", name="Input Current",
+                      oid=f"{_TRIPPLITE}.100.1.10.2.1.0",  # tlPduCircuitLoad circuit 1 (0.1 A)
+                      device_class="current", unit="A", state_class="measurement",
+                      scale=0.1, precision=1),
+            SensorDef(key="voltage", name="Input Voltage",
+                      oid=f"{_TRIPPLITE}.100.1.10.2.2.0",  # tlPduCircuitVoltage circuit 1 (0.1 V)
+                      device_class="voltage", unit="V", state_class="measurement",
+                      scale=0.1, precision=1),
         ],
     ),
 
