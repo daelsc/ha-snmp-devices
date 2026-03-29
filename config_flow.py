@@ -28,43 +28,19 @@ from .const import (
     DEVICE_TYPES,
     DOMAIN,
 )
+from .snmp_client import snmp_get
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def _async_snmp_get(host: str, community: str, oid: str) -> Any:
-    """Perform async SNMP GET."""
-    from pysnmp.hlapi.v1arch.asyncio import (
-        CommunityData,
-        ObjectIdentity,
-        ObjectType,
-        SnmpDispatcher,
-        UdpTransportTarget,
-        get_cmd,
-    )
-
-    dispatcher = SnmpDispatcher()
-
-    try:
-        transport = await UdpTransportTarget.create((host, 161), timeout=2, retries=1)
-
-        error_indication, error_status, error_index, var_binds = await get_cmd(
-            dispatcher,
-            CommunityData(community, mpModel=1),
-            transport,
-            ObjectType(ObjectIdentity(oid)),
-        )
-
-        if error_indication:
-            raise Exception(f"SNMP error: {error_indication}")
-        if error_status:
-            raise Exception(f"SNMP error: {error_status.prettyPrint()}")
-
-        if var_binds:
-            return var_binds[0][1]
+async def _snmp_get_value(host: str, community: str, oid: str) -> Any:
+    """Perform SNMP GET and return the value, or raise on failure."""
+    resp = await snmp_get(host, community, oid)
+    if resp.error:
+        raise Exception(resp.error)
+    if resp.no_such:
         return None
-    finally:
-        dispatcher.transport_dispatcher.close_dispatcher()
+    return resp.value
 
 
 async def validate_cyberpower(hass: HomeAssistant, host: str, community: str) -> dict[str, Any]:
@@ -74,19 +50,12 @@ async def validate_cyberpower(hass: HomeAssistant, host: str, community: str) ->
 
     _LOGGER.info("Validating CyberPower PDU connection to %s", host)
 
-    # Discover outlets
     for outlet_num in range(1, 25):
         oid = f"{CYBERPOWER_OID_OUTLET_STATE}.{outlet_num}"
         try:
-            result = await _async_snmp_get(host, community, oid)
-
+            result = await _snmp_get_value(host, community, oid)
             if result is None:
                 break
-
-            result_str = str(result)
-            if 'NoSuchInstance' in result_str or 'NoSuchObject' in result_str:
-                break
-
             state = int(result)
             if state in (CYBERPOWER_STATE_ON, CYBERPOWER_STATE_OFF):
                 outlet_count = outlet_num
@@ -101,14 +70,13 @@ async def validate_cyberpower(hass: HomeAssistant, host: str, community: str) ->
     if outlet_count == 0:
         raise ValueError("Could not discover any outlets.")
 
-    # Get outlet names
     for outlet_num in range(1, outlet_count + 1):
         oid = f"{CYBERPOWER_OID_OUTLET_NAME}.{outlet_num}"
         try:
-            result = await _async_snmp_get(host, community, oid)
+            result = await _snmp_get_value(host, community, oid)
             if result:
                 name = str(result)
-                if name and 'NoSuchInstance' not in name and 'NoSuchObject' not in name:
+                if name:
                     outlet_names[outlet_num] = name
                 else:
                     outlet_names[outlet_num] = f"Outlet {outlet_num}"
@@ -127,27 +95,19 @@ async def validate_apc(hass: HomeAssistant, host: str, community: str) -> dict[s
 
     _LOGGER.info("Validating APC UPS connection to %s", host)
 
-    # First check if we can connect by reading output power
     try:
-        result = await _async_snmp_get(host, community, APC_OID_OUTPUT_POWER)
+        result = await _snmp_get_value(host, community, APC_OID_OUTPUT_POWER)
         if result is None:
             raise ValueError("Could not read UPS power data")
     except Exception as err:
         raise ValueError(f"Could not connect to APC UPS: {err}") from err
 
-    # Discover outlet groups
     for group_num in range(1, 10):
         oid = f"{APC_OID_OUTLET_GROUP_STATE}.{group_num}"
         try:
-            result = await _async_snmp_get(host, community, oid)
-
+            result = await _snmp_get_value(host, community, oid)
             if result is None:
                 break
-
-            result_str = str(result)
-            if 'NoSuchInstance' in result_str or 'NoSuchObject' in result_str:
-                break
-
             state = int(result)
             if state in (APC_STATE_ON, APC_STATE_OFF):
                 outlet_count = group_num
@@ -213,7 +173,6 @@ class SNMPDevicesConfigFlow(ConfigFlow, domain=DOMAIN):
             self._community = user_input["community"]
             self._name = user_input.get(CONF_NAME, self._host)
 
-            # Check if already configured
             await self.async_set_unique_id(f"{self._device_type}_{self._host}")
             self._abort_if_unique_id_configured()
 
@@ -231,7 +190,6 @@ class SNMPDevicesConfigFlow(ConfigFlow, domain=DOMAIN):
                 if self._outlet_count > 0:
                     return await self.async_step_outlets()
                 else:
-                    # No outlets, create entry directly
                     return self._create_entry()
 
             except ValueError as err:

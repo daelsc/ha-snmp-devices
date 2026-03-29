@@ -18,7 +18,7 @@ PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SENSOR]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SNMP Devices from a config entry."""
     coordinator = SNMPDeviceCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
+    await coordinator.async_config_entry_first_refresh_lenient()
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
